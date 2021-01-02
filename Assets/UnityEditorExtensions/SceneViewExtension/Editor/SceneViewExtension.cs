@@ -5,24 +5,23 @@ using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
 
-namespace EditorUtilities
+namespace UnityEditorExtensions
 {
-	public class JointBoneViewer
+	public class SceneViewExtension
 	{
-		// Color
-		static readonly Color JointColor = new Color(0f, 1f, 0f, 0.66f);
-		static readonly Color BoneColor = new Color(0f, 1f, 0f);
-		// Size
-		const float Extent = 0.1f;
-		const float HalfExtent = 0.05f;
-		// Label
-		static readonly Vector2 LabelSize = new Vector2(100f, 20f);
+		static SceneViewExtensionSetting setting;
 
 
 		[DrawGizmo(GizmoType.Selected)]
 		static void OnGizmoSelected(Transform t, GizmoType type)
 		{
-			OnSearchGizmos(t);
+			if (setting == null) {
+				setting = SceneViewExtensionSetting.Load();
+			}
+
+			if (SceneView.currentDrawingSceneView != null) {
+				OnSearchGizmos(t);
+			}
 		}
 
 		static void OnSearchGizmos(Transform t)
@@ -37,13 +36,20 @@ namespace EditorUtilities
 
 		static void OnDrawGizmos(Transform t)
 		{
+			if (!setting.IsValidAll(t)) {
+				return;
+			}
+
+			float Extent = setting.Extent;
+			float HalfExtent = Extent / 2f;
+
 			// Joint
-			Handles.color = JointColor;
+			Handles.color = setting.JointColor;
 			Handles.SphereHandleCap(0, t.position, t.rotation, Extent, Event.current.type);
 			Handles.ScaleHandle(Vector3.one, t.position, t.rotation, Extent);
 
 			// Bone
-			Handles.color = BoneColor;
+			Handles.color = setting.BoneColor;
 			var V0 = new Vector3(0f, 0f, -HalfExtent);
 			var V1 = new Vector3(-HalfExtent, HalfExtent, HalfExtent);
 			var V2 = new Vector3(HalfExtent, HalfExtent, HalfExtent);
@@ -52,8 +58,14 @@ namespace EditorUtilities
 
 			for (int i = 0; i < t.childCount; i++) {
 				var c = t.GetChild(i);
+
+				if (!setting.IsValidBone(c)) {
+					continue;
+				}
+
 				var v = c.position - t.position;
-				if (v.magnitude == 0f) {
+
+				if (v == Vector3.zero) {
 					continue;
 				}
 
@@ -79,34 +91,41 @@ namespace EditorUtilities
 				Handles.DrawLines(segments);
 			}
 
+			if (setting.HideLabel) {
+				return;
+			}
+
 			// Label
 			Handles.BeginGUI();
 			{
+				string label = t.name;
+
+				// font calc
+				GUI.skin.button.fontSize = setting.FontSize;
+				GUI.skin.button.alignment = TextAnchor.MiddleCenter;
+				var size = GUI.skin.button.CalcSize(new GUIContent(label));
+
+				// screen calc
 				var view = SceneView.currentDrawingSceneView;
+				var scrn = view.camera.WorldToScreenPoint(t.position);
 
-				if (view != null) {
-					var scrn = view.camera.WorldToScreenPoint(t.position);
-					var rect = new Rect(
-							scrn.x - (LabelSize.x * 0.5f),
-							view.position.height - scrn.y - (LabelSize.y * 0.5f),
-							LabelSize.x,
-							LabelSize.y
-							);
-
-					GUI.Button(rect, t.name);
-				} else {
-#if GameViewShowLabels
-					var scrn = Camera.main.WorldToScreenPoint(t.position);
-					var rect = new Rect(
-							scrn.x - (LabelSize.x * 0.5f),
-							Screen.height - scrn.y - (LabelSize.y * 0.5f),
-							LabelSize.x,
-							LabelSize.y
-							);
-
-					GUI.Button(rect, t.name);
-#endif
+				if (scrn.z <= 0f) {
+					return;
 				}
+
+				// retina display
+				scrn *= (1f / EditorGUIUtility.pixelsPerPoint);
+
+				var rect = new Rect(
+						scrn.x - (size.x * 0.5f),
+						view.position.height - scrn.y - (size.y * 0.5f),
+						size.x,
+						size.y
+						);
+				GUI.Button(rect, label);
+
+				//if (rect.Contains(Event.current.mousePosition)) {
+				//}
 			}
 			Handles.EndGUI();
 		}
